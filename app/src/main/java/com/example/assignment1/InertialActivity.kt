@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,12 +25,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.assignment1.ui.theme.Assignment1Theme
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class SensorSample(
+    val timestamp: Long,
+    val x: Float,
+    val y: Float,
+    val z: Float
+)
 
 class InertialActivity : ComponentActivity(), SensorEventListener {
 
@@ -53,6 +63,10 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
 
     private val isCapturing = mutableStateOf(false)
     private val selectedLabel = mutableStateOf("Sitting")
+
+    private val accelSamples = mutableListOf<SensorSample>()
+    private val gyroSamples = mutableListOf<SensorSample>()
+    private val magSamples = mutableListOf<SensorSample>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,10 +106,10 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                             selectedLabel.value = label
                         },
                         onStartClick = {
-                            isCapturing.value = true
+                            startCapture()
                         },
                         onStopClick = {
-                            isCapturing.value = false
+                            stopCaptureAndSave()
                         }
                     )
                 }
@@ -127,29 +141,119 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
 
+        val currentTime = System.currentTimeMillis()
+
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
                 accelX.value = event.values[0]
                 accelY.value = event.values[1]
                 accelZ.value = event.values[2]
+
+                if (isCapturing.value) {
+                    accelSamples.add(
+                        SensorSample(
+                            timestamp = currentTime,
+                            x = event.values[0],
+                            y = event.values[1],
+                            z = event.values[2]
+                        )
+                    )
+                }
             }
 
             Sensor.TYPE_GYROSCOPE -> {
                 gyroX.value = event.values[0]
                 gyroY.value = event.values[1]
                 gyroZ.value = event.values[2]
+
+                if (isCapturing.value) {
+                    gyroSamples.add(
+                        SensorSample(
+                            timestamp = currentTime,
+                            x = event.values[0],
+                            y = event.values[1],
+                            z = event.values[2]
+                        )
+                    )
+                }
             }
 
             Sensor.TYPE_MAGNETIC_FIELD -> {
                 magX.value = event.values[0]
                 magY.value = event.values[1]
                 magZ.value = event.values[2]
+
+                if (isCapturing.value) {
+                    magSamples.add(
+                        SensorSample(
+                            timestamp = currentTime,
+                            x = event.values[0],
+                            y = event.values[1],
+                            z = event.values[2]
+                        )
+                    )
+                }
             }
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
         // 지금은 비워둬도 됨
+    }
+
+    private fun startCapture() {
+        accelSamples.clear()
+        gyroSamples.clear()
+        magSamples.clear()
+        isCapturing.value = true
+
+        Toast.makeText(this, "Capture started", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopCaptureAndSave() {
+        if (!isCapturing.value) return
+
+        isCapturing.value = false
+
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+            .format(Date())
+
+        val label = selectedLabel.value
+        val outputDir = File(
+            getExternalFilesDir(null),
+            "output/Inertial/$label"
+        )
+
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+
+        try {
+            saveSamplesToCsv(File(outputDir, "accel_$timeStamp.csv"), accelSamples)
+            saveSamplesToCsv(File(outputDir, "gyro_$timeStamp.csv"), gyroSamples)
+            saveSamplesToCsv(File(outputDir, "mag_$timeStamp.csv"), magSamples)
+
+            Toast.makeText(
+                this,
+                "Saved to: ${outputDir.absolutePath}",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Save failed: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun saveSamplesToCsv(file: File, samples: List<SensorSample>) {
+        file.bufferedWriter().use { writer ->
+            writer.write("timestamp,x,y,z\n")
+            for (sample in samples) {
+                writer.write("${sample.timestamp},${sample.x},${sample.y},${sample.z}\n")
+            }
+        }
     }
 }
 
