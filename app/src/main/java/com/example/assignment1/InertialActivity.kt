@@ -10,14 +10,17 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -33,6 +36,14 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.Color
+import android.view.ViewGroup
+import androidx.compose.ui.viewinterop.AndroidView
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
 
 data class SensorSample(
     val timestamp: Long,
@@ -61,12 +72,22 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
     private val magY = mutableStateOf(0f)
     private val magZ = mutableStateOf(0f)
 
+    private val accelFrequency = mutableStateOf(0f)
+    private var lastAccelTimestamp: Long = 0L
+
     private val isCapturing = mutableStateOf(false)
     private val selectedLabel = mutableStateOf("Sitting")
 
     private val accelSamples = mutableListOf<SensorSample>()
     private val gyroSamples = mutableListOf<SensorSample>()
     private val magSamples = mutableListOf<SensorSample>()
+
+    private val graphPointsX = mutableStateOf(listOf<Entry>())
+    private val graphPointsY = mutableStateOf(listOf<Entry>())
+    private val graphPointsZ = mutableStateOf(listOf<Entry>())
+
+    private var graphIndex = 0f
+    private val maxGraphPoints = 50
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,6 +119,10 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                         magY = magY.value,
                         magZ = magZ.value,
 
+                        accelFrequency = accelFrequency.value,
+                        graphX = graphPointsX.value,
+                        graphY = graphPointsY.value,
+                        graphZ = graphPointsZ.value,
                         hasAccelerometer = accelerometer != null,
                         hasGyroscope = gyroscope != null,
                         hasMagnetometer = magnetometer != null,
@@ -138,7 +163,7 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         sensorManager.unregisterListener(this)
     }
 
-    override fun onSensorChanged(event: SensorEvent?) {
+        override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
 
         val currentTime = System.currentTimeMillis()
@@ -148,6 +173,16 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                 accelX.value = event.values[0]
                 accelY.value = event.values[1]
                 accelZ.value = event.values[2]
+
+                if (lastAccelTimestamp != 0L) {
+                    val diff = currentTime - lastAccelTimestamp
+                    if (diff > 0) {
+                        accelFrequency.value = 1000f / diff.toFloat()
+                    }
+                }
+                lastAccelTimestamp = currentTime
+
+                updateGraph(event.values[0], event.values[1], event.values[2])
 
                 if (isCapturing.value) {
                     accelSamples.add(
@@ -205,6 +240,12 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         accelSamples.clear()
         gyroSamples.clear()
         magSamples.clear()
+
+        graphPointsX.value = emptyList()
+        graphPointsY.value = emptyList()
+        graphPointsZ.value = emptyList()
+        graphIndex = 0f
+
         isCapturing.value = true
 
         Toast.makeText(this, "Capture started", Toast.LENGTH_SHORT).show()
@@ -255,6 +296,18 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
             }
         }
     }
+
+    private fun updateGraph(x: Float, y: Float, z: Float) {
+        graphIndex += 1f
+
+        val newXList = (graphPointsX.value + Entry(graphIndex, x)).takeLast(maxGraphPoints)
+        val newYList = (graphPointsY.value + Entry(graphIndex, y)).takeLast(maxGraphPoints)
+        val newZList = (graphPointsZ.value + Entry(graphIndex, z)).takeLast(maxGraphPoints)
+
+        graphPointsX.value = newXList
+        graphPointsY.value = newYList
+        graphPointsZ.value = newZList
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -275,6 +328,10 @@ fun InertialScreen(
     magY: Float,
     magZ: Float,
 
+    accelFrequency: Float,
+    graphX: List<Entry>,
+    graphY: List<Entry>,
+    graphZ: List<Entry>,
     hasAccelerometer: Boolean,
     hasGyroscope: Boolean,
     hasMagnetometer: Boolean,
@@ -348,12 +405,29 @@ fun InertialScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text("Accelerometer", style = MaterialTheme.typography.titleMedium)
-        Text("X: ${"%.2f".format(accelX)}")
-        Text("Y: ${"%.2f".format(accelY)}")
-        Text("Z: ${"%.2f".format(accelZ)}")
+        Text("Acceleration Table", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(24.dp))
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Text("Acceleration Graph", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        AccelerationChart(
+            xEntries = graphX,
+            yEntries = graphY,
+            zEntries = graphZ
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Frequency: ${"%.2f".format(accelFrequency)} Hz")
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SensorTable(
+            x = accelX,
+            y = accelY,
+            z = accelZ
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text("Gyroscope", style = MaterialTheme.typography.titleMedium)
         Text("X: ${"%.2f".format(gyroX)}")
@@ -367,4 +441,110 @@ fun InertialScreen(
         Text("Y: ${"%.2f".format(magY)}")
         Text("Z: ${"%.2f".format(magZ)}")
     }
+}
+
+@androidx.compose.runtime.Composable
+fun SensorTable(
+    x: Float,
+    y: Float,
+    z: Float
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, androidx.compose.ui.graphics.Color.Gray)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TableCell("Axis", 1f, true)
+            TableCell("Value", 1f, true)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TableCell("X", 1f, false)
+            TableCell("%.2f".format(x), 1f, false)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TableCell("Y", 1f, false)
+            TableCell("%.2f".format(y), 1f, false)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TableCell("Z", 1f, false)
+            TableCell("%.2f".format(z), 1f, false)
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+fun RowScope.TableCell(
+    text: String,
+    weight: Float,
+    isHeader: Boolean
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .weight(weight)
+            .border(1.dp, androidx.compose.ui.graphics.Color.Gray)
+            .padding(12.dp),
+        style = if (isHeader) {
+            MaterialTheme.typography.titleMedium
+        } else {
+            MaterialTheme.typography.bodyLarge
+        }
+    )
+}
+
+@androidx.compose.runtime.Composable
+fun AccelerationChart(
+    xEntries: List<Entry>,
+    yEntries: List<Entry>,
+    zEntries: List<Entry>
+) {
+    AndroidView(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(300.dp),
+        factory = { context ->
+            LineChart(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+
+                description.isEnabled = false
+                setTouchEnabled(true)
+                isDragEnabled = true
+                setScaleEnabled(true)
+                setPinchZoom(true)
+
+                axisRight.isEnabled = false
+
+                xAxis.position = XAxis.XAxisPosition.BOTTOM
+                xAxis.setDrawGridLines(false)
+
+                legend.isEnabled = true
+            }
+        },
+        update = { chart ->
+            val dataSetX = LineDataSet(xEntries, "Accel X").apply {
+                color = Color.RED
+                setDrawCircles(false)
+                lineWidth = 2f
+            }
+
+            val dataSetY = LineDataSet(yEntries, "Accel Y").apply {
+                color = Color.GREEN
+                setDrawCircles(false)
+                lineWidth = 2f
+            }
+
+            val dataSetZ = LineDataSet(zEntries, "Accel Z").apply {
+                color = Color.BLUE
+                setDrawCircles(false)
+                lineWidth = 2f
+            }
+
+            chart.data = LineData(dataSetX, dataSetY, dataSetZ)
+            chart.invalidate()
+        }
+    )
 }
