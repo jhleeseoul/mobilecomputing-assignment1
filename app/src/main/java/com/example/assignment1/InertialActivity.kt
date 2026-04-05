@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import com.example.assignment1.ui.theme.Assignment1Theme
 import java.io.File
 import java.text.SimpleDateFormat
@@ -60,22 +67,23 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
     private var gyroscope: Sensor? = null
     private var magnetometer: Sensor? = null
 
-    private val accelX = mutableStateOf(0f)
-    private val accelY = mutableStateOf(0f)
-    private val accelZ = mutableStateOf(0f)
+    private val accelX = mutableFloatStateOf(0f)
+    private val accelY = mutableFloatStateOf(0f)
+    private val accelZ = mutableFloatStateOf(0f)
 
-    private val gyroX = mutableStateOf(0f)
-    private val gyroY = mutableStateOf(0f)
-    private val gyroZ = mutableStateOf(0f)
+    private val gyroX = mutableFloatStateOf(0f)
+    private val gyroY = mutableFloatStateOf(0f)
+    private val gyroZ = mutableFloatStateOf(0f)
 
-    private val magX = mutableStateOf(0f)
-    private val magY = mutableStateOf(0f)
-    private val magZ = mutableStateOf(0f)
+    private val magX = mutableFloatStateOf(0f)
+    private val magY = mutableFloatStateOf(0f)
+    private val magZ = mutableFloatStateOf(0f)
 
-    private val accelFrequency = mutableStateOf(0f)
+    private val accelFrequency = mutableFloatStateOf(0f)
     private var lastAccelTimestamp: Long = 0L
 
     private val isCapturing = mutableStateOf(false)
+    private val labels = mutableStateListOf("Sitting", "Standing", "Running")
     private val selectedLabel = mutableStateOf("Sitting")
 
     private val accelSamples = mutableListOf<SensorSample>()
@@ -93,7 +101,9 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        loadLabels()
+
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
@@ -107,19 +117,19 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                         selectedLabel = selectedLabel.value,
                         isCapturing = isCapturing.value,
 
-                        accelX = accelX.value,
-                        accelY = accelY.value,
-                        accelZ = accelZ.value,
+                        accelX = accelX.floatValue,
+                        accelY = accelY.floatValue,
+                        accelZ = accelZ.floatValue,
 
-                        gyroX = gyroX.value,
-                        gyroY = gyroY.value,
-                        gyroZ = gyroZ.value,
+                        gyroX = gyroX.floatValue,
+                        gyroY = gyroY.floatValue,
+                        gyroZ = gyroZ.floatValue,
 
-                        magX = magX.value,
-                        magY = magY.value,
-                        magZ = magZ.value,
+                        magX = magX.floatValue,
+                        magY = magY.floatValue,
+                        magZ = magZ.floatValue,
 
-                        accelFrequency = accelFrequency.value,
+                        accelFrequency = accelFrequency.floatValue,
                         graphX = graphPointsX.value,
                         graphY = graphPointsY.value,
                         graphZ = graphPointsZ.value,
@@ -129,6 +139,26 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
 
                         onSelectLabel = { label ->
                             selectedLabel.value = label
+                            saveLabels()
+                        },
+                        labels = labels,
+                        onAddLabel = { newLabel ->
+                            val trimmed = newLabel.trim()
+                            if (trimmed.isNotEmpty() && !labels.contains(trimmed)) {
+                                labels.add(trimmed)
+                                selectedLabel.value = trimmed
+                                saveLabels()
+                            }
+                        },
+                        onDeleteCurrentLabel = {
+                            if (labels.size > 1) {
+                                val current = selectedLabel.value
+                                labels.remove(current)
+                                selectedLabel.value = labels.first()
+                                saveLabels()
+                            } else {
+                                Toast.makeText(this, "At least one label must remain", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         onStartClick = {
                             startCapture()
@@ -139,6 +169,32 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                     )
                 }
             }
+        }
+    }
+
+    private fun saveLabels() {
+        val sharedPref = getSharedPreferences("InertialPrefs", Context.MODE_PRIVATE)
+        with(sharedPref.edit()) {
+            putString("labels", labels.joinToString(","))
+            putString("selectedLabel", selectedLabel.value)
+            apply()
+        }
+    }
+
+    private fun loadLabels() {
+        val sharedPref = getSharedPreferences("InertialPrefs", Context.MODE_PRIVATE)
+        val savedLabels = sharedPref.getString("labels", null)
+        val savedSelected = sharedPref.getString("selectedLabel", null)
+
+        if (savedLabels != null) {
+            labels.clear()
+            labels.addAll(savedLabels.split(","))
+        }
+
+        if (savedSelected != null && labels.contains(savedSelected)) {
+            selectedLabel.value = savedSelected
+        } else if (labels.isNotEmpty()) {
+            selectedLabel.value = labels.first()
         }
     }
 
@@ -163,21 +219,21 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         sensorManager.unregisterListener(this)
     }
 
-        override fun onSensorChanged(event: SensorEvent?) {
+    override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
 
         val currentTime = System.currentTimeMillis()
 
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                accelX.value = event.values[0]
-                accelY.value = event.values[1]
-                accelZ.value = event.values[2]
+                accelX.floatValue = event.values[0]
+                accelY.floatValue = event.values[1]
+                accelZ.floatValue = event.values[2]
 
                 if (lastAccelTimestamp != 0L) {
                     val diff = currentTime - lastAccelTimestamp
                     if (diff > 0) {
-                        accelFrequency.value = 1000f / diff.toFloat()
+                        accelFrequency.floatValue = 1000f / diff.toFloat()
                     }
                 }
                 lastAccelTimestamp = currentTime
@@ -197,9 +253,9 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
             }
 
             Sensor.TYPE_GYROSCOPE -> {
-                gyroX.value = event.values[0]
-                gyroY.value = event.values[1]
-                gyroZ.value = event.values[2]
+                gyroX.floatValue = event.values[0]
+                gyroY.floatValue = event.values[1]
+                gyroZ.floatValue = event.values[2]
 
                 if (isCapturing.value) {
                     gyroSamples.add(
@@ -214,9 +270,9 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
             }
 
             Sensor.TYPE_MAGNETIC_FIELD -> {
-                magX.value = event.values[0]
-                magY.value = event.values[1]
-                magZ.value = event.values[2]
+                magX.floatValue = event.values[0]
+                magY.floatValue = event.values[1]
+                magZ.floatValue = event.values[2]
 
                 if (isCapturing.value) {
                     magSamples.add(
@@ -314,6 +370,7 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
 fun InertialScreen(
     modifier: Modifier = Modifier,
     selectedLabel: String,
+    labels: List<String>,
     isCapturing: Boolean,
 
     accelX: Float,
@@ -337,10 +394,12 @@ fun InertialScreen(
     hasMagnetometer: Boolean,
 
     onSelectLabel: (String) -> Unit,
+    onAddLabel: (String) -> Unit,
+    onDeleteCurrentLabel: () -> Unit,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit
 ) {
-    val labels = listOf("Sitting", "Standing", "Running")
+
 
     Column(
         modifier = modifier
@@ -362,9 +421,45 @@ fun InertialScreen(
             style = MaterialTheme.typography.titleMedium
         )
 
+        var newLabelText by remember { mutableStateOf("") }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = newLabelText,
+            onValueChange = { newLabelText = it },
+            label = { Text("New Label") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Spacer(modifier = Modifier.height(12.dp))
 
         Row {
+            Button(
+                onClick = {
+                    onAddLabel(newLabelText)
+                    newLabelText = ""
+                }
+            ) {
+                Text("Add Label")
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Button(
+                onClick = onDeleteCurrentLabel
+            ) {
+                Text("Delete Current Label")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+        ) {
             labels.forEach { label ->
                 Button(
                     onClick = { onSelectLabel(label) },
@@ -405,9 +500,6 @@ fun InertialScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text("Acceleration Table", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(24.dp))
-
         Text("Acceleration Graph", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -420,6 +512,9 @@ fun InertialScreen(
         Text("Frequency: ${"%.2f".format(accelFrequency)} Hz")
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        Text("Acceleration Table", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(24.dp))
 
         SensorTable(
             x = accelX,
@@ -481,15 +576,10 @@ fun RowScope.TableCell(
 ) {
     Text(
         text = text,
-        modifier = Modifier
+        Modifier
             .weight(weight)
-            .border(1.dp, androidx.compose.ui.graphics.Color.Gray)
-            .padding(12.dp),
-        style = if (isHeader) {
-            MaterialTheme.typography.titleMedium
-        } else {
-            MaterialTheme.typography.bodyLarge
-        }
+            .padding(8.dp),
+        style = if (isHeader) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium
     )
 }
 
@@ -500,51 +590,59 @@ fun AccelerationChart(
     zEntries: List<Entry>
 ) {
     AndroidView(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp),
         factory = { context ->
             LineChart(context).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
+                    600
                 )
-
                 description.isEnabled = false
                 setTouchEnabled(true)
                 isDragEnabled = true
                 setScaleEnabled(true)
                 setPinchZoom(true)
 
-                axisRight.isEnabled = false
-
                 xAxis.position = XAxis.XAxisPosition.BOTTOM
                 xAxis.setDrawGridLines(false)
 
-                legend.isEnabled = true
+                axisRight.isEnabled = false
             }
         },
         update = { chart ->
-            val dataSetX = LineDataSet(xEntries, "Accel X").apply {
-                color = Color.RED
-                setDrawCircles(false)
-                lineWidth = 2f
+            val dataSets = mutableListOf<LineDataSet>()
+
+            if (xEntries.isNotEmpty()) {
+                val setX = LineDataSet(xEntries, "X").apply {
+                    color = Color.RED
+                    setDrawCircles(false)
+                    lineWidth = 2f
+                }
+                dataSets.add(setX)
             }
 
-            val dataSetY = LineDataSet(yEntries, "Accel Y").apply {
-                color = Color.GREEN
-                setDrawCircles(false)
-                lineWidth = 2f
+            if (yEntries.isNotEmpty()) {
+                val setY = LineDataSet(yEntries, "Y").apply {
+                    color = Color.GREEN
+                    setDrawCircles(false)
+                    lineWidth = 2f
+                }
+                dataSets.add(setY)
             }
 
-            val dataSetZ = LineDataSet(zEntries, "Accel Z").apply {
-                color = Color.BLUE
-                setDrawCircles(false)
-                lineWidth = 2f
+            if (zEntries.isNotEmpty()) {
+                val setZ = LineDataSet(zEntries, "Z").apply {
+                    color = Color.BLUE
+                    setDrawCircles(false)
+                    lineWidth = 2f
+                }
+                dataSets.add(setZ)
             }
 
-            chart.data = LineData(dataSetX, dataSetY, dataSetZ)
+            chart.data = LineData(dataSets.toList())
             chart.invalidate()
-        }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(300.dp)
     )
 }
