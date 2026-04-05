@@ -14,9 +14,10 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -180,10 +182,9 @@ class CameraActivity : ComponentActivity() {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
             .format(System.currentTimeMillis())
 
-        val outputDir = File(
-            getExternalFilesDir(null),
-            "output/Camera/$label"
-        )
+        // Use externalMediaDirs to align with readme's directory structure example
+        val baseDir = externalMediaDirs.firstOrNull() ?: getExternalFilesDir(null)
+        val outputDir = File(baseDir, "output/Camera/$label")
 
         if (!outputDir.exists()) {
             outputDir.mkdirs()
@@ -230,6 +231,7 @@ class CameraActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CameraScreen(
     modifier: Modifier = Modifier,
@@ -260,7 +262,7 @@ fun CameraScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Selected Label: $selectedLabel",
+            text = "Current Category: $selectedLabel",
             style = MaterialTheme.typography.titleMedium
         )
 
@@ -271,7 +273,7 @@ fun CameraScreen(
         OutlinedTextField(
             value = newLabelText,
             onValueChange = { newLabelText = it },
-            label = { Text("New Label") },
+            label = { Text("Add Category") },
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -284,49 +286,54 @@ fun CameraScreen(
                     newLabelText = ""
                 }
             ) {
-                Text("Add Label")
+                Text("Add")
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Button(
-                onClick = onDeleteCurrentLabel
+                onClick = onDeleteCurrentLabel,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Delete Current Label")
+                Text("Delete Selected")
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+        Text(
+            text = "Select Label for Classification:",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.align(Alignment.Start)
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Tailored labeling UI for object classification using FlowRow
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             labels.forEach { label ->
+                val isSelected = label == selectedLabel
                 Button(
                     onClick = { onSelectLabel(label) },
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    colors = if (isSelected) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()
                 ) {
                     Text(label)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Current Camera: $cameraLensLabel",
+            text = "Camera Preview ($cameraLensLabel)",
             style = MaterialTheme.typography.titleMedium
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(onClick = onToggleCamera) {
-            Text("Toggle Front / Back")
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         AndroidView(
             factory = { context ->
@@ -339,10 +346,19 @@ fun CameraScreen(
                 .height(400.dp)
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(30.dp))
 
-        Button(onClick = onSaveClick) {
-            Text("Save Image")
+        Row {
+            Button(onClick = onToggleCamera) {
+                Text("Flip Camera")
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Button(
+                onClick = onSaveClick,
+                modifier = Modifier.height(56.dp).weight(1f)
+            ) {
+                Text("Capture & Save Image")
+            }
         }
     }
 }

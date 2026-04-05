@@ -51,6 +51,7 @@ import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
 
 data class SensorSample(
     val timestamp: Long,
@@ -94,13 +95,14 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
     private val graphPointsY = mutableStateOf(listOf<Entry>())
     private val graphPointsZ = mutableStateOf(listOf<Entry>())
 
-    private var graphIndex = 0f
+    private var captureStartTime: Long = 0L
     private val maxGraphPoints = 50
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        captureStartTime = System.currentTimeMillis()
         loadLabels()
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -238,7 +240,7 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
                 }
                 lastAccelTimestamp = currentTime
 
-                updateGraph(event.values[0], event.values[1], event.values[2])
+                updateGraph(currentTime, event.values[0], event.values[1], event.values[2])
 
                 if (isCapturing.value) {
                     accelSamples.add(
@@ -289,7 +291,7 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // 지금은 비워둬도 됨
+        // Not used
     }
 
     private fun startCapture() {
@@ -300,7 +302,7 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         graphPointsX.value = emptyList()
         graphPointsY.value = emptyList()
         graphPointsZ.value = emptyList()
-        graphIndex = 0f
+        captureStartTime = System.currentTimeMillis()
 
         isCapturing.value = true
 
@@ -316,10 +318,9 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
             .format(Date())
 
         val label = selectedLabel.value
-        val outputDir = File(
-            getExternalFilesDir(null),
-            "output/Inertial/$label"
-        )
+        // Use externalMediaDirs as per readme example directory structure
+        val baseDir = externalMediaDirs.firstOrNull() ?: getExternalFilesDir(null)
+        val outputDir = File(baseDir, "output/Inertial/$label")
 
         if (!outputDir.exists()) {
             outputDir.mkdirs()
@@ -353,12 +354,12 @@ class InertialActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private fun updateGraph(x: Float, y: Float, z: Float) {
-        graphIndex += 1f
+    private fun updateGraph(timestamp: Long, x: Float, y: Float, z: Float) {
+        val relativeTime = (timestamp - captureStartTime).toFloat() / 1000f
 
-        val newXList = (graphPointsX.value + Entry(graphIndex, x)).takeLast(maxGraphPoints)
-        val newYList = (graphPointsY.value + Entry(graphIndex, y)).takeLast(maxGraphPoints)
-        val newZList = (graphPointsZ.value + Entry(graphIndex, z)).takeLast(maxGraphPoints)
+        val newXList = (graphPointsX.value + Entry(relativeTime, x)).takeLast(maxGraphPoints)
+        val newYList = (graphPointsY.value + Entry(relativeTime, y)).takeLast(maxGraphPoints)
+        val newZList = (graphPointsZ.value + Entry(relativeTime, z)).takeLast(maxGraphPoints)
 
         graphPointsX.value = newXList
         graphPointsY.value = newYList
@@ -508,18 +509,17 @@ fun InertialScreen(
             yEntries = graphY,
             zEntries = graphZ
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Frequency: ${"%.2f".format(accelFrequency)} Hz")
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text("Acceleration Table", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         SensorTable(
             x = accelX,
             y = accelY,
-            z = accelZ
+            z = accelZ,
+            frequency = accelFrequency
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -542,7 +542,8 @@ fun InertialScreen(
 fun SensorTable(
     x: Float,
     y: Float,
-    z: Float
+    z: Float,
+    frequency: Float
 ) {
     Column(
         modifier = Modifier
@@ -550,20 +551,24 @@ fun SensorTable(
             .border(1.dp, androidx.compose.ui.graphics.Color.Gray)
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            TableCell("Axis", 1f, true)
+            TableCell("Item", 1f, true)
             TableCell("Value", 1f, true)
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            TableCell("X", 1f, false)
+            TableCell("Acc X", 1f, false)
             TableCell("%.2f".format(x), 1f, false)
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            TableCell("Y", 1f, false)
+            TableCell("Acc Y", 1f, false)
             TableCell("%.2f".format(y), 1f, false)
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            TableCell("Z", 1f, false)
+            TableCell("Acc Z", 1f, false)
             TableCell("%.2f".format(z), 1f, false)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TableCell("Frequency", 1f, false)
+            TableCell("%.2f Hz".format(frequency), 1f, false)
         }
     }
 }
@@ -604,6 +609,11 @@ fun AccelerationChart(
 
                 xAxis.position = XAxis.XAxisPosition.BOTTOM
                 xAxis.setDrawGridLines(false)
+                xAxis.valueFormatter = object : ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        return "%.1fs".format(value)
+                    }
+                }
 
                 axisRight.isEnabled = false
             }
